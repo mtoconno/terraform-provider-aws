@@ -6,7 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/serverlessapplicationrepository"
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func dataSourceAwsServerlessRepositoryApplication() *schema.Resource {
@@ -41,7 +41,7 @@ func dataSourceAwsServerlessRepositoryApplication() *schema.Resource {
 }
 
 func dataSourceAwsServerlessRepositoryApplicationRead(d *schema.ResourceData, meta interface{}) error {
-	conn := meta.(*AWSClient).serverlessapplicationrepositoryconn
+	conn := meta.(*AWSClient).serverlessapprepositoryconn
 
 	applicationID := d.Get("application_id").(string)
 

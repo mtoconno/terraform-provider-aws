@@ -6,14 +6,17 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudformation"
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/terraform-providers/terraform-provider-aws/aws/internal/tfawsresource"
 )
 
 func TestAccAwsServerlessRepositoryStack_basic(t *testing.T) {
 	var stack cloudformation.Stack
-	stackName := fmt.Sprintf("tf-acc-test-basic-%s", acctest.RandString(10))
+	stackName := acctest.RandomWithPrefix("tf-acc-test-basic")
+
+	resourceName := "aws_serverlessrepository_stack.postgres-rotator"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -23,18 +26,20 @@ func TestAccAwsServerlessRepositoryStack_basic(t *testing.T) {
 			{
 				Config: testAccAwsServerlessRepositoryStackConfig(stackName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
-					resource.TestCheckResourceAttrSet("aws_serverlessrepository_stack.postgres-rotator", "semantic_version"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "parameters.%", "2"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "parameters.functionName", fmt.Sprintf("func-%s", stackName)),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "parameters.endpoint", "secretsmanager.us-west-2.amazonaws.com"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "outputs.%", "1"),
-					resource.TestCheckResourceAttrSet("aws_serverlessrepository_stack.postgres-rotator", "outputs.RotationLambdaARN"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "capabilities.#", "1"),
-					//resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "capabilities.0", "CAPABILITY_NAMED_IAM"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.%", "0"),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
+					resource.TestCheckResourceAttrSet(resourceName, "semantic_version"),
+					resource.TestCheckResourceAttr(resourceName, "parameters.%", "2"),
+					resource.TestCheckResourceAttr(resourceName, "parameters.functionName", fmt.Sprintf("func-%s", stackName)),
+					resource.TestCheckResourceAttr(resourceName, "parameters.endpoint", "secretsmanager.us-west-2.amazonaws.com"),
+					resource.TestCheckResourceAttr(resourceName, "outputs.%", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "outputs.RotationLambdaARN"),
+					resource.TestCheckResourceAttr(resourceName, "capabilities.#", "2"),
+					tfawsresource.TestCheckTypeSetElemAttr(resourceName, "capabilities.*", "CAPABILITY_IAM"),
+					tfawsresource.TestCheckTypeSetElemAttr(resourceName, "capabilities.*", "CAPABILITY_RESOURCE_POLICY"),
+					resource.TestCheckResourceAttr(resourceName, "tags.%", "0"),
 				),
+				ExpectNonEmptyPlan: true,
 			},
 		},
 	})
@@ -42,8 +47,10 @@ func TestAccAwsServerlessRepositoryStack_basic(t *testing.T) {
 
 func TestAccAwsServerlessRepositoryStack_versioned(t *testing.T) {
 	var stack cloudformation.Stack
-	stackName := fmt.Sprintf("tf-acc-test-versioned-%s", acctest.RandString(10))
+	stackName := acctest.RandomWithPrefix("tf-acc-test-versioned")
 	const version = "1.0.15"
+
+	resourceName := "aws_serverlessrepository_stack.postgres-rotator"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -53,8 +60,8 @@ func TestAccAwsServerlessRepositoryStack_versioned(t *testing.T) {
 			{
 				Config: testAccAWSServerlessRepositoryStackConfig_versioned(stackName, version),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "semantic_version", version),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "semantic_version", version),
 				),
 			},
 		},
@@ -63,7 +70,9 @@ func TestAccAwsServerlessRepositoryStack_versioned(t *testing.T) {
 
 func TestAccAwsServerlessRepositoryStack_tagged(t *testing.T) {
 	var stack cloudformation.Stack
-	stackName := fmt.Sprintf("tf-acc-test-tagged-%s", acctest.RandString(10))
+	stackName := acctest.RandomWithPrefix("tf-acc-test-tagged")
+
+	resourceName := "aws_serverlessrepository_stack.postgres-rotator"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -73,10 +82,11 @@ func TestAccAwsServerlessRepositoryStack_tagged(t *testing.T) {
 			{
 				Config: testAccAwsServerlessRepositoryStackConfig_tagged(stackName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.%", "1"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.MyTag", "My value"),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "tags.%", "1"),
+					resource.TestCheckResourceAttr(resourceName, "tags.MyTag", "My value"),
 				),
+				ExpectNonEmptyPlan: true,
 			},
 		},
 	})
@@ -84,9 +94,11 @@ func TestAccAwsServerlessRepositoryStack_tagged(t *testing.T) {
 
 func TestAccAwsServerlessRepositoryStack_versionUpdate(t *testing.T) {
 	var stack cloudformation.Stack
-	stackName := fmt.Sprintf("tf-acc-test-update-%s", acctest.RandString(10))
+	stackName := acctest.RandomWithPrefix("tf-acc-test-update")
 	const initialVersion = "1.0.15"
 	const updateVersion = "1.0.36"
+
+	resourceName := "aws_serverlessrepository_stack.postgres-rotator"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -96,17 +108,17 @@ func TestAccAwsServerlessRepositoryStack_versionUpdate(t *testing.T) {
 			{
 				Config: testAccAWSServerlessRepositoryStackConfig_versioned(stackName, initialVersion),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "semantic_version", initialVersion),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
+					resource.TestCheckResourceAttr(resourceName, "semantic_version", initialVersion),
 				),
 			},
 			{
 				Config: testAccAWSServerlessRepositoryStackConfig_versioned(stackName, updateVersion),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "semantic_version", updateVersion),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
+					resource.TestCheckResourceAttr(resourceName, "semantic_version", updateVersion),
 				),
 			},
 		},
@@ -115,9 +127,11 @@ func TestAccAwsServerlessRepositoryStack_versionUpdate(t *testing.T) {
 
 func TestAccAwsServerlessRepositoryStack_update(t *testing.T) {
 	var stack cloudformation.Stack
-	stackName := fmt.Sprintf("tf-acc-test-update-name-%s", acctest.RandString(10))
+	stackName := acctest.RandomWithPrefix("tf-acc-test-update-name")
 	const initialName = "FuncName1"
 	const updatedName = "FuncName2"
+
+	resourceName := "aws_serverlessrepository_stack.postgres-rotator"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -127,22 +141,22 @@ func TestAccAwsServerlessRepositoryStack_update(t *testing.T) {
 			{
 				Config: testAccAWSServerlessRepositoryStackConfig_updateInitial(stackName, initialName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "parameters.functionName", initialName),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.%", "2"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.ToDelete", "ToBeDeleted"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.ToUpdate", "InitialValue"),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "application_id", "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"),
+					resource.TestCheckResourceAttr(resourceName, "parameters.functionName", initialName),
+					resource.TestCheckResourceAttr(resourceName, "tags.%", "2"),
+					resource.TestCheckResourceAttr(resourceName, "tags.ToDelete", "ToBeDeleted"),
+					resource.TestCheckResourceAttr(resourceName, "tags.ToUpdate", "InitialValue"),
 				),
 			},
 			{
 				Config: testAccAWSServerlessRepositoryStackConfig_updateUpdated(stackName, updatedName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServerlessRepositoryStackExists("aws_serverlessrepository_stack.postgres-rotator", &stack),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "parameters.functionName", updatedName),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.%", "2"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.ToUpdate", "UpdatedValue"),
-					resource.TestCheckResourceAttr("aws_serverlessrepository_stack.postgres-rotator", "tags.ToAdd", "AddedValue"),
+					testAccCheckServerlessRepositoryStackExists(resourceName, &stack),
+					resource.TestCheckResourceAttr(resourceName, "parameters.functionName", updatedName),
+					resource.TestCheckResourceAttr(resourceName, "tags.%", "2"),
+					resource.TestCheckResourceAttr(resourceName, "tags.ToUpdate", "UpdatedValue"),
+					resource.TestCheckResourceAttr(resourceName, "tags.ToAdd", "AddedValue"),
 				),
 			},
 		},
@@ -154,6 +168,10 @@ func testAccAwsServerlessRepositoryStackConfig(stackName string) string {
 resource "aws_serverlessrepository_stack" "postgres-rotator" {
   name           = "%[1]s"
   application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  capabilities = [
+    "CAPABILITY_IAM",
+    "CAPABILITY_RESOURCE_POLICY",
+  ]
   parameters = {
     functionName = "func-%[1]s"
     endpoint     = "secretsmanager.us-west-2.amazonaws.com"
@@ -166,13 +184,17 @@ func testAccAWSServerlessRepositoryStackConfig_updateInitial(stackName, function
 resource "aws_serverlessrepository_stack" "postgres-rotator" {
   name           = "%[1]s"
   application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  capabilities = [
+    "CAPABILITY_IAM",
+    "CAPABILITY_RESOURCE_POLICY",
+  ]
   parameters = {
     functionName = "%[2]s"
     endpoint     = "secretsmanager.us-west-2.amazonaws.com"
   }
   tags = {
-	ToDelete = "ToBeDeleted"
-	ToUpdate = "InitialValue"
+    ToDelete = "ToBeDeleted"
+    ToUpdate = "InitialValue"
   }
 }`, stackName, functionName)
 }
@@ -182,13 +204,17 @@ func testAccAWSServerlessRepositoryStackConfig_updateUpdated(stackName, function
 resource "aws_serverlessrepository_stack" "postgres-rotator" {
   name           = "%[1]s"
   application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  capabilities = [
+    "CAPABILITY_IAM",
+    "CAPABILITY_RESOURCE_POLICY",
+  ]
   parameters = {
     functionName = "%[2]s"
     endpoint     = "secretsmanager.us-west-2.amazonaws.com"
   }
   tags = {
-	ToUpdate = "UpdatedValue"
-	ToAdd    = "AddedValue"
+    ToUpdate = "UpdatedValue"
+    ToAdd    = "AddedValue"
   }
 }`, stackName, functionName)
 }
@@ -211,6 +237,10 @@ func testAccAwsServerlessRepositoryStackConfig_tagged(stackName string) string {
 resource "aws_serverlessrepository_stack" "postgres-rotator" {
   name           = "%[1]s"
   application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  capabilities = [
+    "CAPABILITY_IAM",
+    "CAPABILITY_RESOURCE_POLICY",
+  ]
   parameters = {
     functionName = "func-%[1]s"
     endpoint     = "secretsmanager.us-west-2.amazonaws.com"
@@ -237,8 +267,10 @@ func testAccCheckServerlessRepositoryStackExists(n string, stack *cloudformation
 			return err
 		}
 		if len(resp.Stacks) == 0 {
-			return fmt.Errorf("CloudFormation stack not found")
+			return fmt.Errorf("CloudFormation stack (%s) not found", rs.Primary.ID)
 		}
+
+		*stack = *resp.Stacks[0]
 
 		return nil
 	}

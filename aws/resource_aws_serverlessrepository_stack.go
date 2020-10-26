@@ -3,16 +3,17 @@ package aws
 import (
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudformation"
-	"github.com/aws/aws-sdk-go/service/serverlessapplicationrepository"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/helper/schema"
+	serverlessrepository "github.com/aws/aws-sdk-go/service/serverlessapplicationrepository"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/terraform-providers/terraform-provider-aws/aws/internal/keyvaluetags"
 )
 
 func resourceAwsServerlessRepositoryStack() *schema.Resource {
@@ -44,10 +45,21 @@ func resourceAwsServerlessRepositoryStack() *schema.Resource {
 				ForceNew:     true,
 				ValidateFunc: validateArn,
 			},
+			"capabilities": {
+				Type:     schema.TypeSet,
+				Optional: true,
+				Computed: true,
+				Elem: &schema.Schema{
+					Type:         schema.TypeString,
+					ValidateFunc: validation.StringInSlice(serverlessrepository.Capability_Values(), false),
+				},
+				Set: schema.HashString,
+			},
 			"parameters": {
 				Type:     schema.TypeMap,
 				Optional: true,
 				Computed: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
 			},
 			"semantic_version": {
 				Type:     schema.TypeString,
@@ -58,12 +70,7 @@ func resourceAwsServerlessRepositoryStack() *schema.Resource {
 			"outputs": {
 				Type:     schema.TypeMap,
 				Computed: true,
-			},
-			"capabilities": {
-				Type:     schema.TypeSet,
-				Computed: true,
 				Elem:     &schema.Schema{Type: schema.TypeString},
-				Set:      schema.HashString,
 			},
 			"tags": tagsSchema(),
 		},
@@ -71,12 +78,15 @@ func resourceAwsServerlessRepositoryStack() *schema.Resource {
 }
 
 func resourceAwsServerlessRepositoryStackCreate(d *schema.ResourceData, meta interface{}) error {
-	serverlessConn := meta.(*AWSClient).serverlessapplicationrepositoryconn
+	serverlessConn := meta.(*AWSClient).serverlessapprepositoryconn
 	cfConn := meta.(*AWSClient).cfconn
 
-	changeSetRequest := serverlessapplicationrepository.CreateCloudFormationChangeSetRequest{
-		StackName:     aws.String(d.Get("name").(string)),
+	stackName := d.Get("name").(string)
+	changeSetRequest := serverlessrepository.CreateCloudFormationChangeSetRequest{
+		StackName:     aws.String(stackName),
 		ApplicationId: aws.String(d.Get("application_id").(string)),
+		Capabilities:  expandStringSet(d.Get("capabilities").(*schema.Set)),
+		Tags:          keyvaluetags.New(d.Get("tags").(map[string]interface{})).IgnoreServerlessApplicationRepository().ServerlessapplicationrepositoryTags(),
 	}
 	if v, ok := d.GetOk("semantic_version"); ok {
 		version := v.(string)
@@ -85,17 +95,14 @@ func resourceAwsServerlessRepositoryStackCreate(d *schema.ResourceData, meta int
 	if v, ok := d.GetOk("parameters"); ok {
 		changeSetRequest.ParameterOverrides = expandServerlessRepositoryChangeSetParameters(v.(map[string]interface{}))
 	}
-	if v, ok := d.GetOk("tags"); ok {
-		changeSetRequest.Tags = expandServerlessRepositoryChangeSetTags(v.(map[string]interface{}))
-	}
 
 	log.Printf("[DEBUG] Creating Serverless Application Repository change set: %s", changeSetRequest)
 	changeSetResponse, err := serverlessConn.CreateCloudFormationChangeSet(&changeSetRequest)
 	if err != nil {
-		return fmt.Errorf("Creating Serverless Application Repository change set failed: %s", err.Error())
+		return fmt.Errorf("Creating Serverless Application Repository change set (%s) failed: %w", stackName, err)
 	}
 
-	d.SetId(*changeSetResponse.StackId)
+	d.SetId(aws.StringValue(changeSetResponse.StackId))
 
 	err = waitForCreateChangeSet(d, cfConn, changeSetResponse.ChangeSetId)
 	if err != nil {
@@ -194,10 +201,11 @@ func resourceAwsServerlessRepositoryStackCreate(d *schema.ResourceData, meta int
 }
 
 func resourceAwsServerlessRepositoryStackRead(d *schema.ResourceData, meta interface{}) error {
-	serverlessConn := meta.(*AWSClient).serverlessapplicationrepositoryconn
+	serverlessConn := meta.(*AWSClient).serverlessapprepositoryconn
 	cfConn := meta.(*AWSClient).cfconn
+	ignoreTagsConfig := meta.(*AWSClient).IgnoreTagsConfig
 
-	getApplicationInput := &serverlessapplicationrepository.GetApplicationInput{
+	getApplicationInput := &serverlessrepository.GetApplicationInput{
 		ApplicationId: aws.String(d.Get("application_id").(string)),
 	}
 
@@ -234,8 +242,7 @@ func resourceAwsServerlessRepositoryStackRead(d *schema.ResourceData, meta inter
 	}
 	for _, s := range stacks {
 		if *s.StackId == d.Id() && *s.StackStatus == "DELETE_COMPLETE" {
-			log.Printf("[DEBUG] Removing CloudFormation stack %s"+
-				" as it has been already deleted", d.Id())
+			log.Printf("[DEBUG] Removing CloudFormation stack %s as it has been already deleted", d.Id())
 			d.SetId("")
 			return nil
 		}
@@ -244,68 +251,31 @@ func resourceAwsServerlessRepositoryStackRead(d *schema.ResourceData, meta inter
 	stack := stacks[0]
 	log.Printf("[DEBUG] Received CloudFormation stack: %s", stack)
 
-	// Serverless Application Repo prefixes the stack with "serverlessrepo-",
+	// Serverless Application Repo prefixes the stack name with "serverlessrepo-",
 	// so remove it from the saved string
-	stackName := strings.TrimPrefix(*stack.StackName, "serverlessrepo-")
+	stackName := strings.TrimPrefix(aws.StringValue(stack.StackName), "serverlessrepo-")
 	d.Set("name", &stackName)
 
 	originalParams := d.Get("parameters").(map[string]interface{})
-	err = d.Set("parameters", flattenCloudFormationParameters(stack.Parameters, originalParams))
-	if err != nil {
+	if err = d.Set("parameters", flattenCloudFormationParameters(stack.Parameters, originalParams)); err != nil {
 		return err
 	}
 
-	err = d.Set("tags", flattenServerlessRepositoryCloudFormationTags(stack.Tags))
-	if err != nil {
+	if err = d.Set("tags", keyvaluetags.CloudformationKeyValueTags(stack.Tags).IgnoreServerlessApplicationRepository().IgnoreConfig(ignoreTagsConfig).Map()); err != nil {
 		return err
 	}
 
-	err = d.Set("outputs", flattenCloudFormationOutputs(stack.Outputs))
-	if err != nil {
+	if err = d.Set("outputs", flattenCloudFormationOutputs(stack.Outputs)); err != nil {
 		return err
 	}
 
 	if len(stack.Capabilities) > 0 {
-		err = d.Set("capabilities", schema.NewSet(schema.HashString, flattenStringList(stack.Capabilities)))
-		if err != nil {
+		if err = d.Set("capabilities", flattenStringSet(stack.Capabilities)); err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-func expandServerlessRepositoryChangeSetTags(tags map[string]interface{}) []*serverlessapplicationrepository.Tag {
-	var cfTags []*serverlessapplicationrepository.Tag
-	for k, v := range tags {
-		cfTags = append(cfTags, &serverlessapplicationrepository.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v.(string)),
-		})
-	}
-	return cfTags
-}
-
-func flattenServerlessRepositoryCloudFormationTags(cfTags []*cloudformation.Tag) map[string]string {
-	tags := make(map[string]string, len(cfTags))
-	for _, t := range cfTags {
-		if !tagIgnoredServerlessRepositoryCloudFormation(*t.Key) {
-			tags[*t.Key] = *t.Value
-		}
-	}
-	return tags
-}
-
-func tagIgnoredServerlessRepositoryCloudFormation(k string) bool {
-	filter := []string{"^aws:", "^serverlessrepo:"}
-	for _, v := range filter {
-		log.Printf("[DEBUG] Matching %v with %v\n", v, k)
-		if r, _ := regexp.MatchString(v, k); r {
-			log.Printf("[DEBUG] Found AWS specific tag %s, ignoring.\n", k)
-			return true
-		}
-	}
-	return false
 }
 
 func resourceAwsServerlessRepositoryStackUpdate(d *schema.ResourceData, meta interface{}) error {
@@ -327,11 +297,11 @@ func resourceAwsServerlessRepositoryStackUpdate(d *schema.ResourceData, meta int
 	}
 
 	if v, ok := d.GetOk("tags"); ok {
-		input.Tags = expandCloudFormationTags(v.(map[string]interface{}))
+		input.Tags = keyvaluetags.New(v.(map[string]interface{})).IgnoreServerlessApplicationRepository().CloudformationTags()
 	}
 
 	capabilities := d.Get("capabilities")
-	input.Capabilities = expandStringList(capabilities.(*schema.Set).List())
+	input.Capabilities = expandStringSet(capabilities.(*schema.Set))
 
 	log.Printf("[DEBUG] Creating CloudFormation change set: %s", input)
 	changeSetResponse, err := conn.CreateChangeSet(input)
@@ -539,10 +509,10 @@ func waitForCreateChangeSet(d *schema.ResourceData, conn *cloudformation.CloudFo
 }
 
 // Move to `structure.go`?
-func expandServerlessRepositoryChangeSetParameters(params map[string]interface{}) []*serverlessapplicationrepository.ParameterValue {
-	var appParams []*serverlessapplicationrepository.ParameterValue
+func expandServerlessRepositoryChangeSetParameters(params map[string]interface{}) []*serverlessrepository.ParameterValue {
+	var appParams []*serverlessrepository.ParameterValue
 	for k, v := range params {
-		appParams = append(appParams, &serverlessapplicationrepository.ParameterValue{
+		appParams = append(appParams, &serverlessrepository.ParameterValue{
 			Name:  aws.String(k),
 			Value: aws.String(v.(string)),
 		})

@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestAccDataSourceAwsServerlessRepositoryApplication_Basic(t *testing.T) {
@@ -71,28 +71,28 @@ func testAccCheckAwsServerlessRepositoryApplicationDataSourceID(n string) resour
 
 const testAccCheckAwsServerlessRepositoryApplicationDataSourceConfig = `
 data "aws_serverlessrepository_application" "secrets_manager_postgres_single_user_rotator" {
-	application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
 }
 `
 
 const testAccCheckAwsServerlessRepositoryApplicationDataSourceConfig_NonExistent = `
 data "aws_serverlessrepository_application" "no_such_function" {
-	application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/ThisFunctionDoesNotExist"
+  application_id = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/ThisFunctionDoesNotExist"
 }
 `
 
 func testAccCheckAwsServerlessRepositoryApplicationDataSourceConfig_Versioned(version string) string {
 	return fmt.Sprintf(`
 data "aws_serverlessrepository_application" "secrets_manager_postgres_single_user_rotator" {
-	application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
-	semantic_version = "%[1]s"
+  application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  semantic_version = "%[1]s"
 }
 `, version)
 }
 
 const testAccCheckAwsServerlessRepositoryApplicationDataSourceConfig_Versioned_NonExistent = `
 data "aws_serverlessrepository_application" "secrets_manager_postgres_single_user_rotator" {
-	application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
-	semantic_version = "42.13.7"
+  application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
+  semantic_version = "42.13.7"
 }
 `
